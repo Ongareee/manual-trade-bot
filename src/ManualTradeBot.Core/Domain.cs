@@ -38,6 +38,8 @@ public sealed class ManualTradeLedger
     }
 
     public IReadOnlyCollection<ManualTrade> All { get { lock (_sync) return _trades.Values.ToArray(); } }
+    public IReadOnlyCollection<ManualTrade> Pending(StrategyKind strategy) { lock (_sync) return _trades.Values.Where(t => t.Status == ManualTradeStatus.PendingFill && t.Instruction.Strategy == strategy).OrderByDescending(t => t.Instruction.SignalUtc).ToArray(); }
+    public IReadOnlyCollection<ManualTrade> Active(StrategyKind strategy) { lock (_sync) return _trades.Values.Where(t => t.Status == ManualTradeStatus.Active && t.Instruction.Strategy == strategy).OrderByDescending(t => t.Instruction.SignalUtc).ToArray(); }
 
     public ManualTrade Create(TradeInstruction instruction)
     {
@@ -78,7 +80,8 @@ public sealed class ManualTradeLedger
     }
     private void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        var directory = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         File.WriteAllText(_path, JsonSerializer.Serialize(_trades, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

@@ -51,6 +51,60 @@ public sealed class SignalEngine
         return CheckSignal();
     }
 
+    /// <summary>
+    /// Evaluate the still-forming H1 bar without changing engine state. Used exactly once at T-5m.
+    /// A candidate is returned only when price is approaching the relevant stack+buffer from the
+    /// opposite side and every non-price rule (first-cross, direction, slope and trend) would pass.
+    /// </summary>
+    public Signal? PreviewPotential(in Bar formingBar, double approachPoints)
+    {
+        if (_bars.Count < _maxPeriod || approachPoints <= 0) return null;
+
+        _bars.Add(formingBar);
+        Recalculate();
+        try
+        {
+            // Solve the close-vs-SMA inequality exactly because the forming close is itself part
+            // of every SMA: C > (sum(previous p-1 closes)+C)/p + buffer.
+            var longLevels = new List<double>(); var shortLevels = new List<double>();
+            foreach (int p in _cfg.SmaPeriods)
+            {
+                if (p <= 1 || _bars.Count - 1 < p - 1) return null;
+                double priorSum = 0;
+                for (int j = _bars.Count - p; j < _bars.Count - 1; j++) priorSum += _bars[j].Close;
+                longLevels.Add((priorSum + p * _cfg.EntryBufferPoints) / (p - 1));
+                shortLevels.Add((priorSum - p * _cfg.EntryBufferPoints) / (p - 1));
+            }
+            double longEntry = longLevels.Max();
+            double shortEntry = shortLevels.Min();
+            double px = formingBar.Close;
+
+            if (px >= longEntry - approachPoints && px < longEntry &&
+                PreviewAtPrice(formingBar, longEntry + _cfg.TickSize) is Signal l && l.Side == Side.Long)
+                return l with { EntryPrice = longEntry };
+
+            if (px <= shortEntry + approachPoints && px > shortEntry &&
+                PreviewAtPrice(formingBar, shortEntry - _cfg.TickSize) is Signal s && s.Side == Side.Short)
+                return s with { EntryPrice = shortEntry };
+
+            return null;
+        }
+        finally
+        {
+            _bars.RemoveAt(_bars.Count - 1);
+            Recalculate();
+        }
+    }
+
+    private Signal? PreviewAtPrice(in Bar formingBar, double close)
+    {
+        var original = _bars[^1];
+        _bars[^1] = formingBar with { Close = close, High = Math.Max(formingBar.High, close), Low = Math.Min(formingBar.Low, close) };
+        Recalculate();
+        try { return CheckSignal(); }
+        finally { _bars[^1] = original; Recalculate(); }
+    }
+
     private void TrimAndRecalculate()
     {
         if (_bars.Count > _cfg.MaxBars)

@@ -3,6 +3,7 @@ namespace QuantowerPropBot.Core;
 /// <summary>A 2nd-breakout ORB entry signal (direction + reference price + ORB edges). The runner
 /// anchors SL to the opposite edge and TP to <c>rr × risk</c> off the ACTUAL fill, not this price.</summary>
 public readonly record struct OrbSignal(Side Side, double SignalPrice, double OrbHigh, double OrbLow);
+public readonly record struct OrbApproach(Side Side, double EntryPrice, double OrbHigh, double OrbLow);
 
 /// <summary>
 /// Streaming Opening-Range-Breakout engine — the live-adapted port of the ORB repos' `orb.py`
@@ -51,6 +52,10 @@ public sealed class OrbEngine
     public bool SkippedToday => _skippedToday;
     public double? OrbHigh => _orbFinalized && !_skippedToday ? _orbHigh : null;
     public double? OrbLow => _orbFinalized && !_skippedToday ? _orbLow : null;
+    public OrbApproach? ArmedApproach =>
+        _orbFinalized && !_skippedToday && !_tradedToday && _stage == Stage.NeedRebreak && _armed is Side side
+            ? new OrbApproach(side, side == Side.Long ? _orbHigh : _orbLow, _orbHigh, _orbLow)
+            : null;
 
     /// <summary>Prime the width-guard reference with prior-session ORB widths (oldest→newest), computed
     /// from historical 1-min data at startup so day 1 has a real guard reference.</summary>
